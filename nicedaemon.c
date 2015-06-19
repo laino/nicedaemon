@@ -71,21 +71,27 @@ static int numbers_only(const char *s){
     return 1;
 }
 
-static void configure_process(pid_t pid, CPU_ENTRY* cpus, int priority){
-    cpu_set_t cpu_set;
-    CPU_ENTRY* current_entry;
+static DIR* open_pid_dir(const char* dir){
+    return opendir(dir);
+}
 
-    CPU_ZERO(&cpu_set);
-    
-    current_entry = cpus;
+static pid_t read_pid(DIR* dirp){
+    struct dirent* dp;
 
-    while (current_entry != NULL) {
-        CPU_SET(current_entry->CPU, &cpu_set);
-        current_entry = cpus->NEXT;
+    while ((dp = readdir(dirp)) != NULL){
+        if (numbers_only(dp->d_name)) {
+            return (pid_t) atoi(dp->d_name);
+        }
     }
-      
-    if (cpus != NULL) {
-        if(sched_setaffinity(pid, sizeof(cpu_set), &cpu_set)){
+
+    closedir(dirp);
+
+    return -1;
+}
+
+static void configure_pid(pid_t pid, cpu_set_t* cpu_set, int priority){
+    if (CPU_COUNT(cpu_set) > 0) {
+        if(sched_setaffinity(pid, sizeof(cpu_set_t), cpu_set)){
             printf("Failed to set CPU affinity!\n");
         }
     }
@@ -95,11 +101,42 @@ static void configure_process(pid_t pid, CPU_ENTRY* cpus, int priority){
     }
 }
 
+static void configure_process(pid_t pid, CPU_ENTRY* cpus, int priority){
+    char task_path[256];
+
+    cpu_set_t cpu_set;
+    CPU_ENTRY* current_entry;
+    DIR* dirp;
+
+    pid_t thread_pid;
+
+    sprintf(task_path, "/proc/%i/task/", pid);
+
+    CPU_ZERO(&cpu_set);
+
+    current_entry = cpus;
+
+    while (current_entry != NULL) {
+        CPU_SET(current_entry->CPU, &cpu_set);
+        current_entry = cpus->NEXT;
+    }
+
+    configure_pid(pid, &cpu_set, priority); 
+
+    dirp = open_pid_dir(task_path);
+
+    if(!dirp) return;
+
+    while((thread_pid = read_pid(dirp)) != -1){
+        configure_pid(thread_pid, &cpu_set, priority); 
+    }
+}
+
 static void add_config_entry(PROCESS_CONFIG* config){
     CONFIG_ENTRY* new_entry = (CONFIG_ENTRY*) malloc(sizeof(CONFIG_ENTRY));
     new_entry->CONFIG = config;
     new_entry->NEXT = NULL;
-    
+
     CONFIG_ENTRY** current = &first_config_entry; 
 
     while(*current != NULL){
@@ -118,7 +155,7 @@ static int read_file_string(char* fname, char *buff, int len){
 
     numread = read(fd, buff, len - 1);
     close(fd);
-  
+
     if(numread <= 0) return 1;
 
     buff[numread] = 0;
@@ -134,7 +171,7 @@ static int read_comm_of_pid(pid_t pid, char *buff, int len){
     sprintf(fname, "/proc/%i/comm", pid);
 
     ret = read_file_string(fname, buff, len);
-    
+
     i = 0;
     while(i < len){
         if(buff[i] == '\n' || buff[i] == '\r') buff[i] = '\0';
@@ -177,9 +214,9 @@ static PROCESS_CONFIG* match_process_config(char* comm, char* path){
 
     while(current_config != NULL){
         matches = 1;
-        
+
         current_matcher = current_config->CONFIG->MATCH;
-        
+
         while(current_matcher != NULL){
             matches = check_matching(current_matcher, comm, path); 
             if(!matches) break;
@@ -208,7 +245,7 @@ static void handle_running_process(pid_t pid){
     if(read_exe_of_pid(pid, path, 1024)) return;
 
     config = match_process_config(comm, path);
-    
+
     if(config == NULL) return;
 
     configure_process(pid, config->CPU, config->PRIO);
@@ -243,17 +280,15 @@ static void handle_msg(struct cn_msg *cn_hdr){
 
 static void read_proc_dir(){
     DIR* dirp;
-    struct dirent* dp;
+    pid_t pid;
 
-    dirp = opendir("/proc/");
+    dirp = open_pid_dir("/proc/");
 
-    while ((dp = readdir(dirp)) != NULL){
-        if (numbers_only(dp->d_name)) {
-            handle_running_process((pid_t) atoi(dp->d_name));
-        }
+    if(!dirp) return;
+
+    while((pid = read_pid(dirp)) != -1){
+        handle_running_process(pid);
     }
-        
-    closedir(dirp);
 }
 
 static int parse_argument(char* line, int* line_pointer, CONFIG_ARGUMENT* arg){
@@ -270,7 +305,7 @@ static int parse_argument(char* line, int* line_pointer, CONFIG_ARGUMENT* arg){
     char *name, *value;
 
     // Eliminate spaces
-    
+
     c = line[linep];
 
     while(1) {
@@ -288,38 +323,38 @@ static int parse_argument(char* line, int* line_pointer, CONFIG_ARGUMENT* arg){
     name_start = linep;
 
     // Find '='
-    
+
     while(1){
         c = line[++linep];
 
         if(c == '\0') return linep;
         if(c == '=') break;
     }
-    
+
     name_end = linep;
 
-    
+
     c = line[++linep];
     if(c == '\0') return linep;
 
     if(c == '"'){
         // If the next character is a '"', walk until the next '"'
         value_start = linep + 1;
-        
+
         while(1){
             c = line[++linep];
 
             if(c == '\0') return linep;
             if(c == '"') break;
         }
-    
+
         value_end = linep;
         linep++;
     } else {
         // Otherwise just walk to the next space or end of string
 
         value_start = linep;
-        
+
         while(1){
             c = line[++linep];
             if(c == '\r' || c== '\n' || c == '\0' || c == ' ') break;
@@ -332,12 +367,12 @@ static int parse_argument(char* line, int* line_pointer, CONFIG_ARGUMENT* arg){
     name = (char*) malloc(name_length+1);
     memcpy(name, line+name_start, name_length);
     name[name_length] = 0;
-    
+
     value_length = value_end-value_start;
     value = (char*) malloc(value_length+1);
     memcpy(value, line+value_start, value_length);
     value[value_length] = 0;
-    
+
     arg->NAME = name;
     arg->VALUE = value;
 
@@ -359,7 +394,7 @@ static void add_matcher(PROCESS_CONFIG* conf, int type, char* value){
     while(*target != NULL){
        target = &(*target)->NEXT;
     }
-    
+
     *target = match;
 }
 
@@ -374,7 +409,7 @@ static void add_cpu(PROCESS_CONFIG* conf, int cpu){
     while(*target != NULL){
        target = &(*target)->NEXT;
     }
-    
+
     *target = entry;
 }
 
@@ -421,7 +456,7 @@ static int parse_config_line(char* line){
     conf->CPU = NULL;
     conf->MATCH = NULL;
     conf->NAME = NULL;
-    
+
     while(line_pointer != -1 && line_pointer < len - 1){
         old_line_pointer = line_pointer;
         result = parse_argument(line, &line_pointer, arg);
@@ -431,7 +466,7 @@ static int parse_config_line(char* line){
             free(conf);
             return result;
         }
-        
+
         if(line_pointer != -1){
             had_any_rule = 1;
 
@@ -443,7 +478,7 @@ static int parse_config_line(char* line){
                 return old_line_pointer;
             }
         }
-        
+
         free(arg->VALUE);
         free(arg->NAME);
 
@@ -502,9 +537,9 @@ int main(){
         printf("Could not read any config file! (Looked for ./nicedaemon.conf and /etc/nicedaemon.conf)\n"); 
         return 1;
     }
-    
+
     read_proc_dir();
-    
+
     return fork_connector_loop(handle_msg);
 }
 
