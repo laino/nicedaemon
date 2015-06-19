@@ -2,10 +2,10 @@ nicedaemon
 ==========
 
 A (daemon) program which is able to change niceness and CPU
-affinity of processess based on a set of rules defined in a config
+affinity of a process based on a set of rules defined in a config
 file.
 
-Changing a processes CPU affinity to a single CPU ("sticking" it to
+Changing CPU affinity to a single CPU ("sticking" a process to
 a CPU) can be benefitial for the performance of some 32 bit software (especially
 when playing games using wine).
 
