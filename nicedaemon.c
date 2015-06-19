@@ -503,10 +503,10 @@ static int read_config(const char* path){
 }
 
 int main(){
-	if (getuid() != 0) {
-		printf("Run this program as root\n");
-		return 1;
-	}
+    if (getuid() != 0) {
+        printf("Run this program as root\n");
+        return 1;
+    }
 
     if(read_config("./nicedaemon.conf") && read_config("/etc/nicedaemon.conf")){
         printf("Could not read any config file! (Looked for ./nicedaemon.conf and /etc/nicedaemon.conf)\n"); 
