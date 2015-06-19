@@ -109,14 +109,6 @@ static void add_config_entry(PROCESS_CONFIG* config){
     *current = new_entry;
 }
 
-static char* proc_file_name(pid_t pid, const char* sub){
-    char* fname = (char*) malloc(256); 
-
-    sprintf(fname, "/proc/%i/%s", pid, sub);
-
-    return fname;
-}
-
 static int read_file_string(char* fname, char *buff, int len){
     int fd, numread;
 
@@ -136,10 +128,11 @@ static int read_file_string(char* fname, char *buff, int len){
 
 static int read_comm_of_pid(pid_t pid, char *buff, int len){
     int ret;
-    char *fname;
     int i;
+    char fname[256];
 
-    fname = proc_file_name(pid, "comm");
+    sprintf(fname, "/proc/%i/comm", pid);
+
     ret = read_file_string(fname, buff, len);
     
     i = 0;
@@ -148,21 +141,18 @@ static int read_comm_of_pid(pid_t pid, char *buff, int len){
         i++;
     }
 
-    free(fname);
     return ret;
 }
 
 static int read_exe_of_pid(pid_t pid, char *buff, int len){
     int res;
-    char *fname;
-    
-    fname = proc_file_name(pid, "exe");
+    char fname[256];
+
+    sprintf(fname, "/proc/%i/exe", pid);
 
     if((res = readlink(fname, buff, len - 1)) < 0){
         return res;
     }
-
-    free(fname);
 
     buff[res] = 0;
 
