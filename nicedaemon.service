@@ -1,0 +1,12 @@
+[Unit]
+Name=nicedaemon
+Description=Configures process niceness and CPU affinity based on a set of rules.
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/bin/nicedaemon
+
+[Install]
+WantedBy=multi-user.target
