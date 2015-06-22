@@ -33,32 +33,32 @@
 #define PROCESS_MATCHER_COMM 0
 #define PROCESS_MATCHER_PATH 1
 
-typedef struct CONFIG_ARGUMENT {
-    char* NAME;
-    char* VALUE;
+typedef struct _CONFIG_ARGUMENT {
+    char* name;
+    char* value;
 } CONFIG_ARGUMENT;
 
-typedef struct PROCESS_MATCHER {
-    int TYPE;
-    char *MATCHER;
-    struct PROCESS_MATCHER* NEXT;
+typedef struct _PROCESS_MATCHER {
+    int type;
+    char *value;
+    struct _PROCESS_MATCHER* next;
 } PROCESS_MATCHER;
 
-typedef struct CPU_ENTRY {
-    int CPU;
-    struct CPU_ENTRY* NEXT;
+typedef struct _CPU_ENTRY {
+    int cpu;
+    struct _CPU_ENTRY* next;
 } CPU_ENTRY;
 
-typedef struct PROCESS_CONFIG {
-    char *NAME;
-    PROCESS_MATCHER* MATCH;
-    CPU_ENTRY* CPU;
-    int PRIO;
+typedef struct _PROCESS_CONFIG {
+    char *name;
+    PROCESS_MATCHER* match;
+    CPU_ENTRY* cpu;
+    int prio;
 } PROCESS_CONFIG;
 
-typedef struct CONFIG_ENTRY {
-    struct PROCESS_CONFIG* CONFIG;
-    struct CONFIG_ENTRY* NEXT;
+typedef struct _CONFIG_ENTRY {
+    struct _PROCESS_CONFIG* config;
+    struct _CONFIG_ENTRY* next;
 } CONFIG_ENTRY;
 
 CONFIG_ENTRY* first_config_entry = NULL; 
@@ -117,8 +117,8 @@ static void configure_process(pid_t pid, CPU_ENTRY* cpus, int priority){
     current_entry = cpus;
 
     while (current_entry != NULL) {
-        CPU_SET(current_entry->CPU, &cpu_set);
-        current_entry = cpus->NEXT;
+        CPU_SET(current_entry->cpu, &cpu_set);
+        current_entry = cpus->next;
     }
 
     configure_pid(pid, &cpu_set, priority); 
@@ -134,13 +134,13 @@ static void configure_process(pid_t pid, CPU_ENTRY* cpus, int priority){
 
 static void add_config_entry(PROCESS_CONFIG* config){
     CONFIG_ENTRY* new_entry = (CONFIG_ENTRY*) malloc(sizeof(CONFIG_ENTRY));
-    new_entry->CONFIG = config;
-    new_entry->NEXT = NULL;
+    new_entry->config = config;
+    new_entry->next = NULL;
 
     CONFIG_ENTRY** current = &first_config_entry; 
 
     while(*current != NULL){
-        current = &(*current)->NEXT;
+        current = &(*current)->next;
     }
 
     *current = new_entry;
@@ -197,11 +197,11 @@ static int read_exe_of_pid(pid_t pid, char *buff, int len){
 }
 
 static int check_matching(PROCESS_MATCHER* match, char* comm, char* path){
-    if(match->TYPE == PROCESS_MATCHER_PATH){
-        return !strcmp(match->MATCHER, path);
+    if(match->type == PROCESS_MATCHER_PATH){
+        return !strcmp(match->value, path);
     }
-    if(match->TYPE == PROCESS_MATCHER_COMM){
-        return !strcmp(match->MATCHER, comm);
+    if(match->type == PROCESS_MATCHER_COMM){
+        return !strcmp(match->value, comm);
     }
     return 0;
 }
@@ -215,19 +215,19 @@ static PROCESS_CONFIG* match_process_config(char* comm, char* path){
     while(current_config != NULL){
         matches = 1;
 
-        current_matcher = current_config->CONFIG->MATCH;
+        current_matcher = current_config->config->match;
 
         while(current_matcher != NULL){
             matches = check_matching(current_matcher, comm, path); 
             if(!matches) break;
-            current_matcher = current_matcher->NEXT;
+            current_matcher = current_matcher->next;
         }
 
         if(matches){
-            return current_config->CONFIG;
+            return current_config->config;
         }
 
-        current_config = current_config->NEXT;
+        current_config = current_config->next;
     }
 
     return NULL;
@@ -248,9 +248,9 @@ static void handle_running_process(pid_t pid){
 
     if(config == NULL) return;
 
-    configure_process(pid, config->CPU, config->PRIO);
+    configure_process(pid, config->cpu, config->prio);
 
-    name = config->NAME;
+    name = config->name;
 
     if(name == NULL) name = comm;
 
@@ -373,8 +373,8 @@ static int parse_argument(char* line, int* line_pointer, CONFIG_ARGUMENT* arg){
     memcpy(value, line+value_start, value_length);
     value[value_length] = 0;
 
-    arg->NAME = name;
-    arg->VALUE = value;
+    arg->name = name;
+    arg->value = value;
 
     *line_pointer = linep;
 
@@ -384,15 +384,15 @@ static int parse_argument(char* line, int* line_pointer, CONFIG_ARGUMENT* arg){
 static void add_matcher(PROCESS_CONFIG* conf, int type, char* value){
     PROCESS_MATCHER* match = (PROCESS_MATCHER*) malloc(sizeof(PROCESS_MATCHER));
 
-    match->TYPE = type;
-    match->MATCHER = value;
-    match->NEXT = NULL;
+    match->type = type;
+    match->value = value;
+    match->next = NULL;
 
     PROCESS_MATCHER **target;
 
-    target = &conf->MATCH;
+    target = &conf->match;
     while(*target != NULL){
-       target = &(*target)->NEXT;
+       target = &(*target)->next;
     }
 
     *target = match;
@@ -401,33 +401,33 @@ static void add_matcher(PROCESS_CONFIG* conf, int type, char* value){
 static void add_cpu(PROCESS_CONFIG* conf, int cpu){
     CPU_ENTRY* entry = (CPU_ENTRY*) malloc(sizeof(CPU_ENTRY));
 
-    entry->CPU = cpu;
+    entry->cpu = cpu;
 
     CPU_ENTRY **target;
 
-    target = &conf->CPU;
+    target = &conf->cpu;
     while(*target != NULL){
-       target = &(*target)->NEXT;
+       target = &(*target)->next;
     }
 
     *target = entry;
 }
 
 static int modify_from_argument(PROCESS_CONFIG* conf, CONFIG_ARGUMENT* arg){
-    char *value = (char*) malloc(strlen(arg->VALUE) + 1);
+    char *value = (char*) malloc(strlen(arg->value) + 1);
 
-    memcpy(value, arg->VALUE, strlen(arg->VALUE) + 1);
+    memcpy(value, arg->value, strlen(arg->value) + 1);
 
-    if(!strcmp(arg->NAME, "NAME")){
-        conf->NAME = value;
-    } else if(!strcmp(arg->NAME, "NICE")){
-        conf->PRIO = atoi(value);
+    if(!strcmp(arg->name, "NAME")){
+        conf->name = value;
+    } else if(!strcmp(arg->name, "NICE")){
+        conf->prio = atoi(value);
         free(value);
-    } else if(!strcmp(arg->NAME, "COMM")){
+    } else if(!strcmp(arg->name, "COMM")){
         add_matcher(conf, PROCESS_MATCHER_COMM, value);
-    } else if(!strcmp(arg->NAME, "PATH")){
+    } else if(!strcmp(arg->name, "PATH")){
         add_matcher(conf, PROCESS_MATCHER_PATH, value);
-    } else if(!strcmp(arg->NAME, "CPU")){
+    } else if(!strcmp(arg->name, "CPU")){
         add_cpu(conf, atoi(value));
         free(value);
     } else {
@@ -453,9 +453,9 @@ static int parse_config_line(char* line){
     CONFIG_ARGUMENT* arg = (CONFIG_ARGUMENT*) malloc(sizeof(CONFIG_ARGUMENT));
     PROCESS_CONFIG* conf = (PROCESS_CONFIG*) malloc(sizeof(PROCESS_CONFIG));
 
-    conf->CPU = NULL;
-    conf->MATCH = NULL;
-    conf->NAME = NULL;
+    conf->cpu = NULL;
+    conf->match = NULL;
+    conf->name = NULL;
 
     while(line_pointer != -1 && line_pointer < len - 1){
         old_line_pointer = line_pointer;
@@ -471,16 +471,16 @@ static int parse_config_line(char* line){
             had_any_rule = 1;
 
             if(modify_from_argument(conf, arg)){
-                free(arg->VALUE);
-                free(arg->NAME);
+                free(arg->value);
+                free(arg->name);
                 free(arg);
                 free(conf);
                 return old_line_pointer;
             }
         }
 
-        free(arg->VALUE);
-        free(arg->NAME);
+        free(arg->value);
+        free(arg->name);
 
     }
 
