@@ -6,7 +6,7 @@ Description=Configures process niceness and CPU affinity based on a set of rules
 Type=simple
 User=root
 Group=root
-ExecStart=/bin/nicedaemon
+ExecStart=/usr/bin/nicedaemon
 
 [Install]
 WantedBy=multi-user.target
