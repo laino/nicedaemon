@@ -2,7 +2,7 @@
 all: nicedaemon
 
 nicedaemon: nicedaemon.c fork_connector.c
-	cc -O3 -Wall -ansi -pedantic -std=c99 nicedaemon.c -o nicedaemon
+	cc -O3 -Wall -ansi -pedantic -std=gnu99 nicedaemon.c -o nicedaemon
 
 install:
 	cp nicedaemon /usr/bin/
