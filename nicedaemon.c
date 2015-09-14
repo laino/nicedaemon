@@ -119,7 +119,7 @@ static void configure_process(pid_t pid, CPU_ENTRY *cpus, int priority) {
 
   while (current_entry != NULL) {
     CPU_SET(current_entry->cpu, &cpu_set);
-    current_entry = cpus->next;
+    current_entry = current_entry->next;
   }
 
   configure_pid(pid, &cpu_set, priority);
