@@ -414,6 +414,7 @@ static void add_cpu(PROCESS_CONFIG *conf, int cpu) {
   CPU_ENTRY *entry = (CPU_ENTRY *)malloc(sizeof(CPU_ENTRY));
 
   entry->cpu = cpu;
+  entry->next = NULL;
 
   CPU_ENTRY **target;
 
