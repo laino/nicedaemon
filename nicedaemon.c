@@ -316,7 +316,7 @@ static int parse_argument(char *line, int *line_pointer,
   c = line[linep];
 
   while (1) {
-    if (c != ' ') {
+    if (c != ' ' && c!= '\t') {
       if (c == '\0') {
         *line_pointer = -1;
         return 0;
@@ -368,7 +368,7 @@ static int parse_argument(char *line, int *line_pointer,
 
     while (1) {
       c = line[++linep];
-      if (c == '\r' || c == '\n' || c == '\0' || c == ' ')
+      if (c == '\r' || c == '\n' || c == '\0' || c == ' ' || c == '\t')
         break;
     }
 
