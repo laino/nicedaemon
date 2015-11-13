@@ -16,8 +16,6 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 
-#define _GNU_SOURCE
-
 #include <stdio.h>
 #include <math.h>
 #include <stdlib.h>
@@ -26,6 +24,7 @@
 #include <signal.h>
 #include <dirent.h>
 #include <ctype.h>
+#include <sys/stat.h>
 
 #include <unistd.h>
 #include <sched.h>
@@ -52,9 +51,11 @@ typedef struct _CPU_ENTRY {
 } CPU_ENTRY;
 
 typedef struct _PROCESS_CONFIG {
+  int id;
   char *name;
   PROCESS_MATCHER *match;
   CPU_ENTRY *cpu;
+  char* cgroup;
   int prio;
 } PROCESS_CONFIG;
 
@@ -90,39 +91,44 @@ static pid_t read_pid(DIR *dirp) {
   return -1;
 }
 
-static void configure_pid(pid_t pid, cpu_set_t *cpu_set, int priority) {
-  if (CPU_COUNT(cpu_set) > 0) {
-    if (sched_setaffinity(pid, sizeof(cpu_set_t), cpu_set)) {
-      printf("Failed to set CPU affinity!\n");
-    }
+static void add_to_cgroup(pid_t pid, char* cgroup) {
+  char tasks[128];
+  char pid_str[16];
+
+  sprintf(tasks, "%s/tasks", cgroup);
+  sprintf(pid_str, "%i\n", pid);
+
+  int fp = open(tasks, O_WRONLY | O_APPEND);
+
+  if (!fp) {
+    return;
   }
 
+  write(fp, pid_str, strlen(pid_str));
+
+  close(fp);
+}
+
+static void configure_pid(pid_t pid, int priority) {
   if (setpriority(PRIO_PROCESS, pid, priority)) {
     printf("Failed to set priority!\n");
   }
 }
 
-static void configure_process(pid_t pid, CPU_ENTRY *cpus, int priority) {
+static void configure_process(pid_t pid, char* cgroup, int priority) {
   char task_path[256];
 
-  cpu_set_t cpu_set;
-  CPU_ENTRY *current_entry;
   DIR *dirp;
 
   pid_t thread_pid;
 
   sprintf(task_path, "/proc/%i/task/", pid);
 
-  CPU_ZERO(&cpu_set);
+  configure_pid(pid, priority);
 
-  current_entry = cpus;
-
-  while (current_entry != NULL) {
-    CPU_SET(current_entry->cpu, &cpu_set);
-    current_entry = current_entry->next;
+  if (cgroup != NULL) {
+    add_to_cgroup(pid, cgroup); 
   }
-
-  configure_pid(pid, &cpu_set, priority);
 
   dirp = open_pid_dir(task_path);
 
@@ -130,7 +136,7 @@ static void configure_process(pid_t pid, CPU_ENTRY *cpus, int priority) {
     return;
 
   while ((thread_pid = read_pid(dirp)) != -1) {
-    configure_pid(thread_pid, &cpu_set, priority);
+    configure_pid(thread_pid, priority);
   }
 }
 
@@ -141,9 +147,14 @@ static void add_config_entry(PROCESS_CONFIG *config) {
 
   CONFIG_ENTRY **current = &first_config_entry;
 
+  int id = 0;
+
   while (*current != NULL) {
     current = &(*current)->next;
+    id++;
   }
+
+  new_entry->config->id = id;
 
   *current = new_entry;
 }
@@ -257,7 +268,7 @@ static void handle_running_process(pid_t pid) {
   if (config == NULL)
     return;
 
-  configure_process(pid, config->cpu, config->prio);
+  configure_process(pid, config->cgroup, config->prio);
 
   name = config->name;
 
@@ -468,6 +479,8 @@ static int parse_config_line(char *line) {
   conf->cpu = NULL;
   conf->match = NULL;
   conf->name = NULL;
+  conf->id = 0;
+  conf->cgroup = NULL;
 
   while (line_pointer != -1 && line_pointer < len - 1) {
     old_line_pointer = line_pointer;
@@ -537,6 +550,71 @@ static int read_config(const char *path) {
   return 0;
 }
 
+static int create_cgroup(PROCESS_CONFIG *config) {
+  char *cgroup = (char *) malloc(128);
+
+  char cpus[128];
+  char mems[128];
+  char cpustring[512];
+
+  int fp;
+
+  sprintf(cgroup, "/sys/fs/cgroup/cpuset/nicedaemon_%i", config->id);
+  sprintf(cpus, "%s/cpuset.cpus", cgroup);
+  sprintf(mems, "%s/cpuset.mems", cgroup);
+
+  mkdir(cgroup, 0x777);
+
+  CPU_ENTRY *current_cpu;
+  current_cpu = config->cpu;
+  
+  cpustring[0] = 0;
+
+  while (current_cpu != NULL) {
+    sprintf(cpustring, "%s%i", cpustring, current_cpu->cpu);
+
+    current_cpu = current_cpu->next;
+
+    if (current_cpu) {
+        sprintf(cpustring, "%s,", cpustring);
+    }
+  }
+
+  sprintf(cpustring, "%s\n", cpustring);
+
+  fp = open(cpus, O_WRONLY);
+  if (!fp) {
+    return 1;
+  }
+  write(fp, cpustring, strlen(cpustring));
+  close(fp);
+  
+  fp = open(mems, O_WRONLY);
+  if (!fp) {
+    return 1;
+  }
+  write(fp, "0\n", 2);
+  close(fp);
+
+  config->cgroup = cgroup;
+
+  return 0;
+}
+
+static int create_cgroups() {
+  CONFIG_ENTRY *current_config = first_config_entry;
+
+  while (current_config != NULL) {
+    if (current_config->config->cpu != NULL) {
+        create_cgroup(current_config->config);
+    }
+
+    current_config = current_config->next;
+  }
+
+  return 0;
+}
+
 int main() {
   if (getuid() != 0) {
     printf("Run this program as root\n");
@@ -549,6 +627,11 @@ int main() {
            "/etc/nicedaemon.conf)\n");
     return 1;
   }
+
+  if (create_cgroups()) {
+    printf("Could not create cgroups.\n"); 
+    return 1;
+  };
 
   read_proc_dir();
 
