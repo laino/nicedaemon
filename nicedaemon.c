@@ -55,7 +55,7 @@ typedef struct _PROCESS_CONFIG {
   char *name;
   PROCESS_MATCHER *match;
   CPU_ENTRY *cpu;
-  char* cgroup;
+  char *cgroup;
   int prio;
 } PROCESS_CONFIG;
 
@@ -91,7 +91,7 @@ static pid_t read_pid(DIR *dirp) {
   return -1;
 }
 
-static void add_to_cgroup(pid_t pid, char* cgroup) {
+static void add_to_cgroup(pid_t pid, char *cgroup) {
   char tasks[128];
   char pid_str[16];
 
@@ -115,7 +115,7 @@ static void configure_pid(pid_t pid, int priority) {
   }
 }
 
-static void configure_process(pid_t pid, char* cgroup, int priority) {
+static void configure_process(pid_t pid, char *cgroup, int priority) {
   char task_path[256];
 
   DIR *dirp;
@@ -127,7 +127,7 @@ static void configure_process(pid_t pid, char* cgroup, int priority) {
   configure_pid(pid, priority);
 
   if (cgroup != NULL) {
-    add_to_cgroup(pid, cgroup); 
+    add_to_cgroup(pid, cgroup);
   }
 
   dirp = open_pid_dir(task_path);
@@ -327,7 +327,7 @@ static int parse_argument(char *line, int *line_pointer,
   c = line[linep];
 
   while (1) {
-    if (c != ' ' && c!= '\t') {
+    if (c != ' ' && c != '\t') {
       if (c == '\0') {
         *line_pointer = -1;
         return 0;
@@ -551,7 +551,7 @@ static int read_config(const char *path) {
 }
 
 static int create_cgroup(PROCESS_CONFIG *config) {
-  char *cgroup = (char *) malloc(128);
+  char *cgroup = (char *)malloc(128);
 
   char cpus[128];
   char mems[128];
@@ -567,7 +567,7 @@ static int create_cgroup(PROCESS_CONFIG *config) {
 
   CPU_ENTRY *current_cpu;
   current_cpu = config->cpu;
-  
+
   cpustring[0] = 0;
 
   while (current_cpu != NULL) {
@@ -576,7 +576,7 @@ static int create_cgroup(PROCESS_CONFIG *config) {
     current_cpu = current_cpu->next;
 
     if (current_cpu) {
-        sprintf(cpustring, "%s,", cpustring);
+      sprintf(cpustring, "%s,", cpustring);
     }
   }
 
@@ -588,7 +588,7 @@ static int create_cgroup(PROCESS_CONFIG *config) {
   }
   write(fp, cpustring, strlen(cpustring));
   close(fp);
-  
+
   fp = open(mems, O_WRONLY);
   if (!fp) {
     return 1;
@@ -601,12 +601,70 @@ static int create_cgroup(PROCESS_CONFIG *config) {
   return 0;
 }
 
+static int remove_cgroup(char *d_name) {
+  char d_path[512];
+  char t_path[512];
+
+  char line[512];
+
+  FILE *source;
+  FILE *target;
+
+  sprintf(d_path, "/sys/fs/cgroup/cpuset/%s", d_name);
+  sprintf(t_path, "%s/tasks", d_path);
+
+  source = fopen(t_path, "r");
+
+  if (source == NULL) {
+    return 1;
+  }
+
+  target = fopen("/sys/fs/cgroup/cpuset/tasks", "w");
+
+  if (target == NULL) {
+    return 1;
+  }
+
+  while (fgets(line, sizeof line, source) != NULL) {
+    fprintf(target, "%s", line);
+    fflush(target);
+  }
+
+  fclose(source);
+  fclose(target);
+
+  return rmdir(d_path);
+}
+
+static int remove_cgroups() {
+  DIR *dirp;
+  struct dirent *dp;
+
+  dirp = opendir("/sys/fs/cgroup/cpuset/");
+
+  if (!dirp) {
+    return 1;
+  }
+
+  while ((dp = readdir(dirp)) != NULL) {
+    if (!strncmp("nicedaemon_", dp->d_name, 11)) {
+      if (remove_cgroup(dp->d_name)) {
+        return 1;
+      }
+    }
+  }
+
+  closedir(dirp);
+
+  return 0;
+}
+
 static int create_cgroups() {
   CONFIG_ENTRY *current_config = first_config_entry;
 
   while (current_config != NULL) {
     if (current_config->config->cpu != NULL) {
-        create_cgroup(current_config->config);
+      create_cgroup(current_config->config);
     }
 
     current_config = current_config->next;
@@ -628,13 +686,19 @@ int main() {
     return 1;
   }
 
-  if (create_cgroups()) {
-    printf("Could not create cgroups.\n"); 
+  if (remove_cgroups()) {
+    printf("Could not remove cgroups.\n");
     return 1;
   };
+
+  if (create_cgroups()) {
+    printf("Could not create cgroups.\n");
+    return 1;
+  };
+
+  printf("Now running.\n");
 
   read_proc_dir();
 
   return fork_connector_loop(handle_msg);
 }
-
