@@ -278,13 +278,6 @@ static void handle_running_process(pid_t pid) {
   printf("Matched \"%s\" with PID %i\n", name, pid);
 }
 
-static void handle_stopped_process(pid_t pid) {
-  char buff[256];
-
-  if (read_comm_of_pid(pid, buff, 256))
-    return;
-}
-
 static void handle_msg(struct cn_msg *cn_hdr) {
   struct proc_event *ev = (struct proc_event *)cn_hdr->data;
 
@@ -292,10 +285,6 @@ static void handle_msg(struct cn_msg *cn_hdr) {
 
   if (ev->what == PROC_EVENT_COMM || ev->what == PROC_EVENT_EXEC) {
     handle_running_process(pid);
-  }
-
-  if (ev->what == PROC_EVENT_EXIT) {
-    handle_stopped_process(pid);
   }
 }
 
